@@ -26,6 +26,15 @@ from datetime import UTC, datetime
 
 from poller.client import UpstreamError, fetch_raw, parse_block
 from poller.config import settings
+from poller.metrics import (
+    POLL_DURATION_SECONDS,
+    POLL_LAST_SUCCESS_TIMESTAMP,
+    POLL_ROWS_INSERTED_TOTAL,
+    POLL_ROWS_SKIPPED_TOTAL,
+    POLL_RUNS_TOTAL,
+    maybe_push_metrics,
+    start_metrics_exporter,
+)
 from poller.store import connect, finish_run, load_stations, save_observations, start_run
 
 logging.basicConfig(
@@ -69,7 +78,8 @@ def poll_once(past_days: int | None = None) -> tuple[int, int]:
             station_ids = {s.slug: s.id for s in stations}
             inserted, skipped = save_observations(conn, station_ids, observations)
 
-            duration_ms = int((time.perf_counter() - started) * 1000)
+            duration_s = time.perf_counter() - started
+            duration_ms = int(duration_s * 1000)
             finish_run(
                 conn,
                 run_id,
@@ -79,6 +89,14 @@ def poll_once(past_days: int | None = None) -> tuple[int, int]:
                 rows_skipped=skipped,
                 duration_ms=duration_ms,
             )
+            # Record Prometheus metrics
+            POLL_RUNS_TOTAL.labels(status="ok").inc()
+            POLL_DURATION_SECONDS.observe(duration_s)
+            POLL_ROWS_INSERTED_TOTAL.inc(inserted)
+            POLL_ROWS_SKIPPED_TOTAL.inc(skipped)
+            POLL_LAST_SUCCESS_TIMESTAMP.set_to_current_time()
+            maybe_push_metrics(settings.pushgateway_url)
+
             log.info(
                 "poll ok: %s stations, %s inserted, %s already present, %sms",
                 len(stations),
@@ -89,7 +107,8 @@ def poll_once(past_days: int | None = None) -> tuple[int, int]:
             return inserted, skipped
 
         except Exception as exc:
-            duration_ms = int((time.perf_counter() - started) * 1000)
+            duration_s = time.perf_counter() - started
+            duration_ms = int(duration_s * 1000)
             finish_run(
                 conn,
                 run_id,
@@ -98,6 +117,11 @@ def poll_once(past_days: int | None = None) -> tuple[int, int]:
                 duration_ms=duration_ms,
                 error=str(exc),
             )
+            # Record failure in Prometheus metrics
+            POLL_RUNS_TOTAL.labels(status="failed").inc()
+            POLL_DURATION_SECONDS.observe(duration_s)
+            maybe_push_metrics(settings.pushgateway_url)
+
             log.error("poll failed: %s", exc)
             raise
 
@@ -128,6 +152,8 @@ def main() -> int:
             # Non-zero exit is how a CronJob reports failure. Do not swallow it.
             return 1
 
+    # Loop mode (Deployment) -- start Prometheus metrics server
+    start_metrics_exporter(settings.metrics_port)
     log.info("starting poll loop, every %s minutes", settings.poll_interval_minutes)
     while True:
         try:

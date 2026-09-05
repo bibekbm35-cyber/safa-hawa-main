@@ -1,0 +1,85 @@
+# ==============================================================================
+# Poller Workload Decision: CronJob vs Deployment
+#
+# DECISION: We implement the Poller as a Kubernetes CronJob running `python -m poller.run --once`.
+#
+# WHY CRONJOB:
+# 1. Observability: When an hourly poll fails, Kubernetes marks the Job as Failed and fires an Event.
+#    In a Deployment loop, a wedged thread or internal exception keeps the pod in "Running" state,
+#    making a pipeline failure completely invisible to Kubernetes.
+# 2. Resource Efficiency: Air quality is published hourly. A CronJob only consumes memory and CPU
+#    for the ~2 seconds it takes to fetch and write, and releases cluster resources completely between runs.
+# 3. Concurrency Protection: `concurrencyPolicy: Forbid` prevents overlapping executions if upstream is slow.
+#
+# THE COUNTER-ARGUMENT (Why someone would choose Deployment):
+# A Deployment avoids container startup and Python interpreter initialization latency (~1-2 seconds)
+# and can maintain an internal Prometheus scrape target or persistent connection pool.
+# ==============================================================================
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: safahawa-poller
+  namespace: safa-hawa
+  labels:
+    app: poller
+    app.kubernetes.io/name: safahawa-poller
+spec:
+  # Upstream Open-Meteo publishes hourly; poll every 15 minutes to catch fresh readings promptly
+  schedule: "*/15 * * * *"
+  # Never start a second poll if the previous one is still in progress
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 5
+  jobTemplate:
+    spec:
+      backoffLimit: 2
+      template:
+        metadata:
+          labels:
+            app: poller
+            app.kubernetes.io/name: safahawa-poller
+        spec:
+          restartPolicy: OnFailure
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 10001
+            runAsGroup: 10001
+            fsGroup: 10001
+          containers:
+            - name: poller
+              image: safa-hawa-poller:latest
+              imagePullPolicy: IfNotPresent
+              securityContext:
+                allowPrivilegeEscalation: false
+                capabilities:
+                  drop:
+                    - ALL
+              command: ["python", "-m", "poller.run", "--once"]
+              env:
+                - name: DATABASE_URL
+                  valueFrom:
+                    secretKeyRef:
+                      name: safahawa-secrets
+                      key: DATABASE_URL
+                - name: UPSTREAM_URL
+                  valueFrom:
+                    configMapKeyRef:
+                      name: safahawa-config
+                      key: UPSTREAM_URL
+                - name: LOOKBACK_HOURS
+                  valueFrom:
+                    configMapKeyRef:
+                      name: safahawa-config
+                      key: LOOKBACK_HOURS
+                - name: LOG_LEVEL
+                  valueFrom:
+                    configMapKeyRef:
+                      name: safahawa-config
+                      key: LOG_LEVEL
+              resources:
+                requests:
+                  cpu: 50m
+                  memory: 64Mi
+                limits:
+                  cpu: 250m
+                  memory: 128Mi

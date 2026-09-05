@@ -12,6 +12,7 @@ async function get(path) {
 export const api = {
   stations: () => get("/stations"),
   latest: () => get("/latest"),
+  worst: () => get("/worst"),
   readings: (slug, hours) => get(`/stations/${slug}/readings?hours=${hours}`),
   summary: (slug, days) => get(`/stations/${slug}/summary?days=${days}`),
   ingestStatus: () => get("/ingest/status"),

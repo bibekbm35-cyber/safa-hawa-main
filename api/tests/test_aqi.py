@@ -7,7 +7,6 @@ than these.
 """
 
 import pytest
-
 from app.aqi import aqi_from_pm25, band_for, band_key_for
 
 

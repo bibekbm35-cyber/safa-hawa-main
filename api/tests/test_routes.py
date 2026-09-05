@@ -59,6 +59,36 @@ class TestReadings:
         assert client.get("/api/v1/stations/kalanki/readings?hours=0").status_code == 422
         assert client.get("/api/v1/stations/kalanki/readings?hours=99999").status_code == 422
 
+    def test_pagination_limit_and_offset(self, client, seeded_readings):
+        page1 = client.get("/api/v1/stations/kalanki/readings?hours=24&limit=5&offset=0").json()
+        page2 = client.get("/api/v1/stations/kalanki/readings?hours=24&limit=5&offset=5").json()
+        assert len(page1) == 5
+        assert len(page2) == 5
+        assert page1[0]["observed_at"] != page2[0]["observed_at"]
+
+    def test_pagination_bounds_validation(self, client):
+        assert client.get("/api/v1/stations/kalanki/readings?limit=0").status_code == 422
+        assert client.get("/api/v1/stations/kalanki/readings?limit=1000").status_code == 422
+        assert client.get("/api/v1/stations/kalanki/readings?offset=-1").status_code == 422
+
+
+class TestWorst:
+    def test_worst_station_fallback_when_empty(self, client):
+        """When no readings exist, return the first active station with reading=null."""
+        res = client.get("/api/v1/worst")
+        assert res.status_code == 200
+        data = res.json()
+        assert "station" in data
+        assert data["reading"] is None
+
+    def test_worst_station_picks_highest_aqi(self, client, seeded_readings):
+        """Returns the station with the highest AQI."""
+        res = client.get("/api/v1/worst")
+        assert res.status_code == 200
+        data = res.json()
+        assert data["station"]["slug"] == "kalanki"
+        assert data["reading"]["us_aqi"] is not None
+
 
 class TestLatest:
     def test_every_station_appears_even_without_data(self, client):

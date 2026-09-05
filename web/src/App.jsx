@@ -40,12 +40,12 @@ export default function App() {
     let cancelled = false;
     (async () => {
       try {
-        const rows = await loadOverview();
+        const [rows, worst] = await Promise.all([
+          loadOverview(),
+          api.worst().catch(() => null),
+        ]);
         if (cancelled) return;
-        const worst = [...rows]
-          .filter((r) => r.reading?.us_aqi != null)
-          .sort((a, b) => b.reading.us_aqi - a.reading.us_aqi)[0];
-        setSelected(worst?.station.slug ?? rows[0]?.station.slug ?? null);
+        setSelected(worst?.station?.slug ?? rows[0]?.station?.slug ?? null);
       } catch (err) {
         if (!cancelled) setError(err.message);
       } finally {

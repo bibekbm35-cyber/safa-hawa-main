@@ -1,0 +1,31 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: safahawa-ingress
+  namespace: safa-hawa
+  labels:
+    app.kubernetes.io/name: safahawa-ingress
+  annotations:
+    # Works with standard ingress-nginx controller (minikube addons enable ingress)
+    nginx.ingress.kubernetes.io/ssl-redirect: "false"
+    nginx.ingress.kubernetes.io/use-regex: "true"
+spec:
+  rules:
+    - http:
+        paths:
+          # Route API traffic to the FastAPI backend service
+          - path: /api(/|$)(.*)
+            pathType: ImplementationSpecific
+            backend:
+              service:
+                name: safahawa-api
+                port:
+                  number: 8000
+          # Route all other web traffic to the React frontend dashboard
+          - path: /(.*)
+            pathType: ImplementationSpecific
+            backend:
+              service:
+                name: safahawa-web
+                port:
+                  number: 80

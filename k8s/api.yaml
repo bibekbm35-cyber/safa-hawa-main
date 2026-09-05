@@ -1,0 +1,91 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: safahawa-api
+  namespace: safa-hawa
+  labels:
+    app: api
+    app.kubernetes.io/name: safahawa-api
+spec:
+  type: ClusterIP
+  ports:
+    - name: http
+      port: 8000
+      targetPort: 8000
+  selector:
+    app: api
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: safahawa-api
+  namespace: safa-hawa
+  labels:
+    app: api
+    app.kubernetes.io/name: safahawa-api
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: api
+  template:
+    metadata:
+      labels:
+        app: api
+        app.kubernetes.io/name: safahawa-api
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+      containers:
+        - name: api
+          image: safa-hawa-api:latest
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+          ports:
+            - name: http
+              containerPort: 8000
+          env:
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: safahawa-secrets
+                  key: DATABASE_URL
+            - name: LOG_LEVEL
+              valueFrom:
+                configMapKeyRef:
+                  name: safahawa-config
+                  key: LOG_LEVEL
+          resources:
+            requests:
+              cpu: 50m
+              memory: 96Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
+          # Liveness: Is the application process wedged?
+          # Touches NOTHING external. If this fails, Kubernetes restarts the pod.
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8000
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 3
+          # Readiness: Can this pod accept client traffic right now?
+          # Verifies PostgreSQL connectivity. If 503, removes pod from Service endpoints without killing it.
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: 8000
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 2

@@ -1,0 +1,20 @@
+groups:
+  - name: safahawa_alerts
+    rules:
+      - alert: SafaHawaDataStale
+        expr: safahawa_data_age_seconds > 10800
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Safa Hawa pipeline data is stale"
+          description: "Air quality data has not been updated for > 3 hours. Newest observation age is {{ $value }}s. The poller may be failing or wedged."
+
+      - alert: SafaHawaPollerFailureRateHigh
+        expr: rate(safahawa_poller_runs_total{status="failed"}[30m]) > 0
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Poller encountering upstream errors"
+          description: "Poller runs are failing against upstream Open-Meteo feed."

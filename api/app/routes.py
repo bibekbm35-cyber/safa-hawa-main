@@ -112,10 +112,37 @@ def latest_everywhere(session: Session = Depends(get_session)) -> list[LatestOut
     return out
 
 
+@router.get("/worst", response_model=LatestOut)
+def worst_station(session: Session = Depends(get_session)) -> LatestOut:
+    """The valley's worst station right now -- highest US AQI.
+
+    Instead of forcing the frontend to download all stations and sort them client-side,
+    this endpoint answers 'who has it worst right now?' in a single lightweight query.
+    """
+    all_latest = latest_everywhere(session=session)
+    if not all_latest:
+        raise HTTPException(status_code=404, detail="No active stations found")
+
+    readings_with_aqi = [
+        item for item in all_latest if item.reading is not None and item.reading.us_aqi is not None
+    ]
+    if readings_with_aqi:
+        return max(readings_with_aqi, key=lambda x: x.reading.us_aqi)  # type: ignore[union-attr]
+
+    return all_latest[0]
+
+
 @router.get("/stations/{slug}/readings", response_model=list[ReadingOut])
 def station_readings(
     slug: str,
     hours: int = Query(24, ge=1, le=720, description="Look-back window in hours."),
+    limit: int = Query(
+        168,
+        ge=1,
+        le=720,
+        description="Maximum readings to return (default 168 = 7 days). Caps JSON response size.",
+    ),
+    offset: int = Query(0, ge=0, description="Number of readings to skip for pagination."),
     session: Session = Depends(get_session),
 ) -> list[ReadingOut]:
     station = session.scalar(select(Station).where(Station.slug == slug))
@@ -127,6 +154,8 @@ def station_readings(
         select(Reading)
         .where(Reading.station_id == station.id, Reading.observed_at >= since)
         .order_by(Reading.observed_at)
+        .offset(offset)
+        .limit(limit)
     )
     return [_to_reading_out(r) for r in session.scalars(stmt)]
 

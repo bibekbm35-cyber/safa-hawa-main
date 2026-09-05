@@ -1,0 +1,57 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: safahawa-migration
+  namespace: safa-hawa
+  labels:
+    app.kubernetes.io/name: safahawa-migration
+spec:
+  # Do not retry endlessly if migration SQL has a fatal syntax/schema bug
+  backoffLimit: 3
+  template:
+    metadata:
+      labels:
+        app: migration
+        app.kubernetes.io/name: safahawa-migration
+    spec:
+      restartPolicy: OnFailure
+      # Security: Run as dedicated non-root user (UID 10001)
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+      initContainers:
+        # Wait until PostgreSQL is actually accepting TCP connections before attempting Alembic migration
+        - name: wait-for-postgres
+          image: busybox:1.36
+          securityContext:
+            runAsNonRoot: false
+            runAsUser: 0
+          command:
+            - sh
+            - -c
+            - |
+              echo "Waiting for postgres:5432..."
+              until nc -z -w 2 postgres 5432; do
+                sleep 2
+              done
+              echo "Postgres is reachable!"
+      containers:
+        - name: alembic-upgrade
+          image: safa-hawa-api:latest
+          imagePullPolicy: IfNotPresent
+          command: ["python", "-m", "alembic", "upgrade", "head"]
+          env:
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: safahawa-secrets
+                  key: DATABASE_URL
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 250m
+              memory: 128Mi

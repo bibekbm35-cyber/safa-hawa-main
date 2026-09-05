@@ -1,0 +1,91 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: safahawa-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-safahawa}
+      POSTGRES_USER: ${POSTGRES_USER:-hawa}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-hawa}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-hawa} -d ${POSTGRES_DB:-safahawa}"]
+      interval: 2s
+      timeout: 3s
+      retries: 15
+
+  migration:
+    build:
+      context: ./api
+      dockerfile: Dockerfile
+    container_name: safahawa-migration
+    restart: "no"
+    environment:
+      DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg://hawa:hawa@postgres:5432/safahawa}
+    command: ["python", "-m", "alembic", "upgrade", "head"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  api:
+    build:
+      context: ./api
+      dockerfile: Dockerfile
+    container_name: safahawa-api
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg://hawa:hawa@postgres:5432/safahawa}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+    ports:
+      - "${API_PORT:-8000}:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migration:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/healthz')"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  poller:
+    build:
+      context: ./poller
+      dockerfile: Dockerfile
+    container_name: safahawa-poller
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg://hawa:hawa@postgres:5432/safahawa}
+      UPSTREAM_URL: ${UPSTREAM_URL:-https://air-quality-api.open-meteo.com/v1/air-quality}
+      POLL_INTERVAL_MINUTES: ${POLL_INTERVAL_MINUTES:-15}
+      LOOKBACK_HOURS: ${LOOKBACK_HOURS:-6}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+    ports:
+      - "8001:8001"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migration:
+        condition: service_completed_successfully
+
+  web:
+    build:
+      context: ./web
+      dockerfile: Dockerfile
+    container_name: safahawa-web
+    restart: unless-stopped
+    environment:
+      API_BASE_URL: ${API_BASE_URL:-/api/v1}
+    ports:
+      - "${WEB_PORT:-5173}:8080"
+    depends_on:
+      api:
+        condition: service_started
+
+volumes:
+  postgres_data:
+    name: safahawa_postgres_data

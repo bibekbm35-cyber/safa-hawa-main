@@ -28,6 +28,8 @@ class Settings(BaseSettings):
     backoff_base_seconds: float = 2.0
 
     log_level: str = "INFO"
+    metrics_port: int = 8001
+    pushgateway_url: str | None = None
 
     @property
     def dsn(self) -> str:
