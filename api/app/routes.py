@@ -66,17 +66,21 @@ def latest_everywhere(session: Session = Depends(get_session)) -> list[LatestOut
     cost of tying us to Postgres. That trade is fine here -- we are tied to
     Postgres anyway.
     """
-    rows = session.execute(
-        text(
-            """
+    rows = (
+        session.execute(
+            text(
+                """
             SELECT DISTINCT ON (r.station_id) r.*
             FROM readings r
             JOIN stations s ON s.id = r.station_id
             WHERE s.active
             ORDER BY r.station_id, r.observed_at DESC
             """
+            )
         )
-    ).mappings().all()
+        .mappings()
+        .all()
+    )
 
     by_station = {row["station_id"]: row for row in rows}
     stations = session.scalars(
@@ -184,9 +188,10 @@ def station_summary(
         raise HTTPException(status_code=404, detail=f"No station with slug '{slug}'")
 
     since = datetime.now(UTC) - timedelta(days=days)
-    rows = session.execute(
-        text(
-            """
+    rows = (
+        session.execute(
+            text(
+                """
             SELECT date_trunc('day', observed_at AT TIME ZONE 'Asia/Kathmandu') AS day,
                    AVG(pm2_5)  AS avg_pm2_5,
                    MAX(pm2_5)  AS max_pm2_5,
@@ -197,9 +202,12 @@ def station_summary(
             GROUP BY 1
             ORDER BY 1
             """
-        ),
-        {"sid": station.id, "since": since},
-    ).mappings().all()
+            ),
+            {"sid": station.id, "since": since},
+        )
+        .mappings()
+        .all()
+    )
 
     out = []
     for row in rows:
@@ -232,10 +240,7 @@ def ingest_status(session: Session = Depends(get_session)) -> IngestStatusOut:
     """
     last_run = session.scalar(select(PollRun).order_by(PollRun.started_at.desc()).limit(1))
     last_ok = session.scalar(
-        select(PollRun)
-        .where(PollRun.status == "ok")
-        .order_by(PollRun.started_at.desc())
-        .limit(1)
+        select(PollRun).where(PollRun.status == "ok").order_by(PollRun.started_at.desc()).limit(1)
     )
     newest = session.scalar(select(func.max(Reading.observed_at)))
     total = session.scalar(select(func.count()).select_from(Reading)) or 0

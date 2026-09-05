@@ -10,6 +10,7 @@ from datetime import UTC, datetime, timedelta
 import httpx
 import pytest
 import respx
+
 from poller.client import UpstreamError, fetch_raw, parse_block
 from poller.config import settings
 

@@ -49,10 +49,7 @@ def connect() -> psycopg.Connection:
 
 def load_stations(conn: psycopg.Connection) -> list[Station]:
     with conn.cursor() as cur:
-        cur.execute(
-            "SELECT id, slug, latitude, longitude FROM stations "
-            "WHERE active ORDER BY id"
-        )
+        cur.execute("SELECT id, slug, latitude, longitude FROM stations WHERE active ORDER BY id")
         return [Station(**row) for row in cur.fetchall()]
 
 

@@ -59,9 +59,7 @@ def upgrade() -> None:
         # This constraint IS the idempotency guarantee. The poller relies on it.
         sa.UniqueConstraint("station_id", "observed_at", name="uq_reading_station_hour"),
     )
-    op.create_index(
-        "ix_readings_station_observed", "readings", ["station_id", "observed_at"]
-    )
+    op.create_index("ix_readings_station_observed", "readings", ["station_id", "observed_at"])
 
     op.create_table(
         "poll_runs",

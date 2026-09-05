@@ -63,9 +63,7 @@ class Reading(Base):
     station_id: Mapped[int] = mapped_column(
         ForeignKey("stations.id", ondelete="CASCADE"), nullable=False
     )
-    observed_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False
-    )
+    observed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
     pm2_5: Mapped[float | None] = mapped_column(Float)
     pm10: Mapped[float | None] = mapped_column(Float)
@@ -97,9 +95,7 @@ class PollRun(Base):
     __tablename__ = "poll_runs"
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
-    started_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False
-    )
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     status: Mapped[str] = mapped_column(String(16), nullable=False)  # ok|partial|failed
     stations_polled: Mapped[int] = mapped_column(Integer, nullable=False, default=0)

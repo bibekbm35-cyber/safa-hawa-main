@@ -52,9 +52,7 @@ def poll_once(past_days: int | None = None) -> tuple[int, int]:
     with connect() as conn:
         stations = load_stations(conn)
         if not stations:
-            raise RuntimeError(
-                "No active stations in the database. Did the migrations run?"
-            )
+            raise RuntimeError("No active stations in the database. Did the migrations run?")
 
         run_id = start_run(conn)
         try:

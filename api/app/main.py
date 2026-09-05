@@ -16,6 +16,7 @@ logging.basicConfig(
 )
 log = logging.getLogger("safahawa.api")
 
+
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     log.info("API starting; database target comes from DATABASE_URL")
@@ -58,5 +59,3 @@ def metrics():
 @app.get("/", include_in_schema=False)
 def root():
     return {"service": "safa-hawa-api", "docs": "/docs", "health": "/healthz"}
-
-

@@ -135,13 +135,10 @@ class TestIngestStatus:
 
     def test_old_data_is_reported_stale(self, client, engine, clean_readings):
         with engine.begin() as conn:
-            sid = conn.execute(
-                text("SELECT id FROM stations WHERE slug = 'thamel'")
-            ).scalar_one()
+            sid = conn.execute(text("SELECT id FROM stations WHERE slug = 'thamel'")).scalar_one()
             conn.execute(
                 text(
-                    "INSERT INTO readings (station_id, observed_at, pm2_5) "
-                    "VALUES (:sid, :t, 30.0)"
+                    "INSERT INTO readings (station_id, observed_at, pm2_5) VALUES (:sid, :t, 30.0)"
                 ),
                 {"sid": sid, "t": datetime.now(UTC) - timedelta(hours=9)},
             )

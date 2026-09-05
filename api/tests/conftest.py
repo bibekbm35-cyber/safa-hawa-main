@@ -17,9 +17,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy import create_engine, text
 from sqlalchemy.orm import sessionmaker
 
-BASE_URL = os.environ.get(
-    "DATABASE_URL", "postgresql+psycopg://hawa:hawa@localhost:5432/safahawa"
-)
+BASE_URL = os.environ.get("DATABASE_URL", "postgresql+psycopg://hawa:hawa@localhost:5432/safahawa")
 TEST_DB = "safahawa_test"
 TEST_URL = BASE_URL.rsplit("/", 1)[0] + "/" + TEST_DB
 
