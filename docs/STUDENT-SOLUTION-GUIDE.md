@@ -20,6 +20,43 @@ Judges respect this framing because it is the actual job description of an Infra
 4. **Duplicate readings are impossible because of a unique constraint on `(station_id, observed_at)`, which is what lets the poller safely re-fetch overlapping windows.**
 5. **The system reports its own freshness, so a stopped pipeline looks different from clean air.**
 
+```mermaid
+flowchart TD
+    subgraph External ["External Services & Clients"]
+        Client["📱 Web Browser / Client"]
+        OpenMeteo["☁️ Open-Meteo Air Quality API"]
+    end
+
+    subgraph Cluster ["Kubernetes Cluster (Namespace: safa-hawa)"]
+        Ingress["🔀 Ingress Controller (Port 80/443)"]
+        Web["🖥️ Web Frontend (Nginx + React)<br/><i>2 Replicas, Port 8080</i>"]
+        API["⚡ FastAPI Backend (Read-Only)<br/><i>2 Replicas, Port 8000</i>"]
+        Poller["⏰ Poller (CronJob)<br/><i>Every 15 min, Only Writer</i>"]
+        Migration["🛠️ Migration Job<br/><i>Alembic Upgrade Head</i>"]
+        DB[("🐘 PostgreSQL 16 (StatefulSet)<br/><i>Port 5432, PVC 1Gi</i>")]
+    end
+
+    Client --> Ingress
+    Ingress -->|"Path: /"| Web
+    Ingress -->|"Path: /api/"| API
+    Web -.->|"SPA Client API Calls"| API
+
+    Poller -->|"Hourly Poll"| OpenMeteo
+    Poller -->|"INSERT ON CONFLICT DO NOTHING"| DB
+    Migration -.->|"Run before API starts"| DB
+    API -->|"Read-only SELECT"| DB
+
+    classDef comp fill:#e7f5ff,stroke:#1971c2,stroke-width:2px,color:#0c4a6e;
+    classDef db fill:#ebfbee,stroke:#2b8a3e,stroke-width:2px,color:#14532d;
+    classDef ext fill:#fff3bf,stroke:#f08c00,stroke-width:2px,color:#7c2d12;
+    classDef route fill:#f8f9fa,stroke:#495057,stroke-width:2px,color:#212529;
+
+    class Web,API,Poller,Migration comp;
+    class DB db;
+    class Client,OpenMeteo ext;
+    class Ingress route;
+```
+
 ---
 
 ## Phase 1 — Containers & Local Orchestration
@@ -67,18 +104,45 @@ Judges respect this framing because it is the actual job description of an Infra
 
 The GitHub Actions workflow triggers on every push and pull request to `main`:
 
-```
-┌────────────────────────────────────────────────────────┐
-│                   Parallel Checks                      │
-├───────────────┬────────────────┬───────────────┬───────┤
-│  lint         │  test-poller   │  test-api     │ build │
-│ (ruff+eslint) │ (in-memory)    │ (Postgres SV) │ (Vite)│
-└───────┬───────┴────────┬───────┴───────┬───────┴───┬───┘
-        │                │               │           │
-        └────────────────┴───────┬───────┴───────────┘
-                                 ▼
-                     docker-build-scan
-             (Build images tagged with SHA + Trivy)
+```mermaid
+flowchart TD
+    Push["🚀 Git Push / PR to 'main'"] --> Trigger["⚡ GitHub Actions Runner"]
+
+    subgraph Stage1 ["Stage 1: Parallel Lint & Unit Tests"]
+        LintJob["🧹 lint<br/>• ruff check (Python)<br/>• eslint (Web)"]
+        PollerJob["🧪 test-poller<br/>• pytest poller/tests<br/>• In-memory mocks (0.10s)"]
+        APIJob["🗄️ test-api<br/>• postgres:16-alpine service<br/>• alembic upgrade head<br/>• pytest api/tests (1.05s)"]
+        WebJob["⚛️ build-web<br/>• vitest run<br/>• vite build (production)"]
+    end
+
+    Trigger --> LintJob
+    Trigger --> PollerJob
+    Trigger --> APIJob
+    Trigger --> WebJob
+
+    LintJob --> Gate{"All Tests Pass?"}
+    PollerJob --> Gate
+    APIJob --> Gate
+    WebJob --> Gate
+
+    subgraph Stage2 ["Stage 2: Packaging & Security Audit"]
+        DockerBuild["🐳 docker build<br/>• Tag with ${{ github.sha }}<br/>• Multi-stage & Non-root"]
+        TrivyAudit["🛡️ Trivy Security Scan<br/>• Scan for CRITICAL CVEs<br/>• Fail on vulnerabilities"]
+    end
+
+    Gate -- "Yes (Green ✓)" --> DockerBuild
+    DockerBuild --> TrivyAudit
+    Gate -- "No (Red ✗)" --> Fail["❌ Block Merge / Notify Team"]
+
+    classDef trigger fill:#fff3bf,stroke:#f08c00,stroke-width:2px,color:#7c2d12;
+    classDef job fill:#e7f5ff,stroke:#1971c2,stroke-width:2px,color:#0c4a6e;
+    classDef package fill:#ebfbee,stroke:#2b8a3e,stroke-width:2px,color:#14532d;
+    classDef alert fill:#ffe3e3,stroke:#e03131,stroke-width:2px,color:#7f1d1d;
+
+    class Push,Trigger trigger;
+    class LintJob,PollerJob,APIJob,WebJob job;
+    class DockerBuild,TrivyAudit package;
+    class Fail alert;
 ```
 
 1. **Parallel Execution**: Independent jobs run simultaneously on separate GitHub runners, cutting CI wait time from 5 minutes down to under 90 seconds.
@@ -100,6 +164,37 @@ The GitHub Actions workflow triggers on every push and pull request to `main`:
 * `web.yaml`: `Deployment` (2 replicas) and Service.
 * `ingress.yaml`: Routes `/api` to the backend and `/` to the frontend.
 * `networkpolicy.yaml`: Zero-trust network rule blocking the frontend web pods from reaching Postgres port 5432 directly.
+
+```mermaid
+flowchart LR
+    subgraph Frontend ["Frontend Layer"]
+        Web["🌐 Web Pod (Nginx/React)"]
+    end
+
+    subgraph Backend ["Backend Tier"]
+        API["⚡ API Pods (FastAPI)"]
+        Poller["⏰ Poller Pods (CronJob)"]
+    end
+
+    subgraph Database ["Isolated Data Tier"]
+        DB[("🐘 PostgreSQL (Port 5432)")]
+    end
+
+    NP{{"🛡️ NetworkPolicy: postgres-allow-app"}}
+
+    Web -.->|"❌ DROPPED (Port 5432 Forbidden)"| NP
+    API -->|"✅ ALLOWED (TCP 5432)"| NP
+    Poller -->|"✅ ALLOWED (TCP 5432)"| NP
+    NP --> DB
+
+    classDef allow fill:#ebfbee,stroke:#2b8a3e,stroke-width:2px,color:#14532d;
+    classDef block fill:#ffe3e3,stroke:#e03131,stroke-width:2px,color:#7f1d1d;
+    classDef neutral fill:#f8f9fa,stroke:#495057,stroke-width:2px,color:#212529;
+
+    class API,Poller allow;
+    class Web,NP block;
+    class DB neutral;
+```
 
 ### Deep-Dive: Probes (`/healthz` vs `/readyz`)
 * **Liveness (`/healthz`)**: Answers *"Is the Python process itself deadlocked or wedged?"*
@@ -189,32 +284,16 @@ Here is how you demonstrate production readiness to judges in under 5 minutes:
 
 ---
 
-## Answers to the 9 Presentation Interview Questions
+---
 
-### 1. Draw the architecture on a whiteboard from memory.
-> *"We have three tiers and four processes: The React web dashboard talks to a read-only FastAPI service over HTTP. The FastAPI service queries PostgreSQL. Alongside it on a clock, a standalone Python poller fetches hourly air quality from Open-Meteo and writes to PostgreSQL. The poller is the only writer; the API has no write endpoints at all."*
+## Phase 6 — Interview & Defense Preparation
 
-### 2. Why are there two Python services instead of one?
-> *"Because they are operationally opposite workloads. The API is user-facing, unpredictable, and scales horizontally with web traffic. The poller is triggered on a fixed schedule; scaling it to three instances would be a bug because three pollers would fetch identical data and race to insert it. Combining them into one container would force us to either scale something that shouldn't scale, or limit something that must scale."*
+The complete interview preparation guide—including answers to the **9 core presentation questions**, plus **11 advanced scenario questions** (20 total questions with full explanations, interview delivery scripts, and visual Mermaid diagrams)—has been moved to its own dedicated guide:
 
-### 3. What happens if the poller runs twice at the same time?
-> *"Nothing breaks. The database enforces a `UNIQUE (station_id, observed_at)` constraint, and the poller writes using `ON CONFLICT DO NOTHING`. If two pollers run concurrently, they both fetch the window and whichever commits second simply gets duplicate rows skipped with zero errors and zero corrupted data."*
+👉 **[docs/INTERVIEW-QA.md](file:///home/sagyam/Projects/safa-hawa/docs/INTERVIEW-QA.md)**: *"DevOps & Kubernetes इन्टरभ्यु तयारी गाइड (Interview Q&A Guide in Nepali)"*
 
-### 4. Why is `/healthz` different from `/readyz`?
-> *"`/healthz` is for liveness — it checks if the Python process is wedged. If it fails, Kubernetes kills and restarts the container. It touches no external systems.*
-> *`/readyz` is for readiness — it tests whether the container can talk to PostgreSQL. If it fails, Kubernetes leaves the container running but removes it from Service traffic rotation. If we checked the database in `/healthz`, a 10-second database hiccup would cause Kubernetes to kill all healthy API pods simultaneously, turning a temporary slowdown into a full cluster outage."*
+This guide provides:
+- Core technical concepts explained simply in Nepali (नेपाली)
+- Scripted responses you can speak directly in technical interviews
+- Visual Mermaid diagrams illustrating key interview topics (Healthz vs Readyz, StatefulSet vs Deployment, NetworkPolicy isolation, and Ingress routing)
 
-### 5. Your image is N MB. What is in it, and what did you remove?
-> *"Our API image is 312 MB uncompressed (~75 MB compressed). It is built with a multi-stage Dockerfile based on `python:3.12-slim`. In the builder stage, we installed wheels, but we excluded GCC, compiler toolchains, header files, and package caches from the runtime image. It also runs as an unprivileged user (`UID 10001`)."*
-
-### 6. Where does the database password live, and who can read it?
-> *"In Kubernetes, it lives in a `Secret` object (`safahawa-secrets`), which is mounted into the API and Poller pods as environment variables. In local Docker Compose, it is loaded from a git-ignored `.env` file via environment interpolation. It is never committed to Git."*
-
-### 7. The dashboard shows AQI 40. How do I know that is current and not from Tuesday?
-> *"Every reading carries an `observed_at` UTC timestamp. The API computes `data_age_minutes` in `/api/v1/ingest/status`, the frontend displays relative freshness ('15 min ago'), and an amber warning banner appears if data is older than 180 minutes. In addition, Prometheus monitors the gauge `safahawa_data_age_seconds` and fires an alert if data age exceeds 3 hours."*
-
-### 8. What breaks first if this gets a thousand times more traffic?
-> *"The API's `/summary` endpoint. It aggregates PM2.5 concentrations over multi-day windows using `date_trunc` with timezone conversion. Because the database is read-only for the API, the immediate fix is to put a Redis cache or CDN reverse proxy in front of `/summary` with a 15-minute TTL, matching the upstream feed frequency."*
-
-### 9. What did you not build, and why?
-> *"I did not build a service mesh, a message queue, or a Redis cache. A service mesh adds sidecar proxy overhead when there is no service-to-service traffic to secure. A message queue adds moving parts when we only ingest eight rows once an hour. And a cache is unnecessary right now because eight stations of hourly data easily fit entirely in PostgreSQL's RAM buffer cache. Adding those would be resume-driven development."*
