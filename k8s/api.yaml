@@ -15,6 +15,23 @@ spec:
   selector:
     app: api
 ---
+apiVersion: v1
+kind: Service
+metadata:
+  name: api
+  namespace: safa-hawa
+  labels:
+    app: api
+    app.kubernetes.io/name: safahawa-api
+spec:
+  type: ClusterIP
+  ports:
+    - name: http
+      port: 8000
+      targetPort: 8000
+  selector:
+    app: api
+---
 apiVersion: apps/v1
 kind: Deployment
 metadata:

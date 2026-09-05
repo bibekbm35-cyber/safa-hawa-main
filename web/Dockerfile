@@ -16,6 +16,7 @@ FROM nginx:alpine AS runtime
 
 # Upgrade base packages to patch security advisories and remove default nginx static files
 RUN apk update && apk upgrade --no-cache && \
+    sed -i '/user  nginx;/d' /etc/nginx/nginx.conf && \
     rm -rf /usr/share/nginx/html/*
 
 # Create dedicated unprivileged non-root user and group (UID 10001)
