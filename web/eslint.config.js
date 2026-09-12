@@ -6,7 +6,6 @@ export default [
   reactPlugin.configs.flat.recommended,
   reactPlugin.configs.flat["jsx-runtime"],
   {
-    files: ["src/**/*.{js,jsx}"],
     languageOptions: {
       ecmaVersion: "latest",
       sourceType: "module",
@@ -27,7 +26,7 @@ export default [
     },
     settings: {
       react: {
-        version: "detect",
+        version: "18.3.1",
       },
     },
     rules: {

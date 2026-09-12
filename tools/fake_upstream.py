@@ -57,8 +57,18 @@ def pm25_for(when: datetime, lat: float, lon: float) -> float:
 
     # Winter inversion: December-February is roughly triple the monsoon.
     month_factor = {
-        1: 3.1, 2: 2.8, 3: 2.2, 4: 1.8, 5: 1.4, 6: 0.8,
-        7: 0.6, 8: 0.6, 9: 0.8, 10: 1.5, 11: 2.4, 12: 3.0,
+        1: 3.1,
+        2: 2.8,
+        3: 2.2,
+        4: 1.8,
+        5: 1.4,
+        6: 0.8,
+        7: 0.6,
+        8: 0.6,
+        9: 0.8,
+        10: 1.5,
+        11: 2.4,
+        12: 3.0,
     }[when.month]
 
     # Twin traffic peaks near 08:00 and 19:00 local.
@@ -75,7 +85,9 @@ def pm25_for(when: datetime, lat: float, lon: float) -> float:
     return round(max(2.0, (baseline + morning + evening) * month_factor * bowl * noise), 1)
 
 
-def build_block(lat: float, lon: float, variables: list[str], past_days: int, forecast_days: int) -> dict:
+def build_block(
+    lat: float, lon: float, variables: list[str], past_days: int, forecast_days: int
+) -> dict:
     now = datetime.now(UTC).replace(minute=0, second=0, microsecond=0)
     start = (now - timedelta(days=past_days)).replace(hour=0)
     end = now + timedelta(days=forecast_days)
@@ -146,7 +158,7 @@ class Handler(BaseHTTPRequestHandler):
 
         blocks = [
             build_block(lat, lon, variables, past_days, forecast_days)
-            for lat, lon in zip(lats, lons)
+            for lat, lon in zip(lats, lons, strict=False)
         ]
         body = json.dumps(blocks if len(blocks) > 1 else blocks[0]).encode()
 
